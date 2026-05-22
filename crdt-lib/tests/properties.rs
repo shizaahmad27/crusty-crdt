@@ -13,6 +13,7 @@ use crdt_lib::clock::LamportTimestamp;
 use crdt_lib::counter::{GCounter, PNCounter};
 use crdt_lib::register::LwwRegister;
 use crdt_lib::set::OrSet;
+use crdt_lib::text::Rga;
 use crdt_lib::Crdt;
 use proptest::prelude::*;
 
@@ -316,5 +317,80 @@ proptest! {
         b_merged.merge(&a);
 
         prop_assert_eq!(a_merged, b_merged);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RGA properties
+// ---------------------------------------------------------------------------
+
+/// Bygger en tilfeldig RGA ved å sette inn tegn på tilfeldige posisjoner.
+/// Vi bruker en monotont voksende counter for ID-er for å sikre unikhet på
+/// tvers av kall i samme test.
+fn arb_rga() -> impl Strategy<Value = Rga> {
+    prop::collection::vec((any::<char>(), 0u64..10, 0u64..3), 0..15).prop_map(|ops| {
+        let mut r = Rga::new();
+        let mut counter: u64 = 1;
+        for (ch, pos, replica) in ops {
+            counter += 1;
+            let id = LamportTimestamp::new(counter, replica);
+            let len = r.len();
+            let parent = if len == 0 || pos as usize % (len + 1) == 0 {
+                None
+            } else {
+                r.id_at_visible_index((pos as usize) % len)
+            };
+            r.insert_after(parent, ch, id);
+        }
+        r
+    })
+}
+
+proptest! {
+    #[test]
+    fn rga_merge_is_commutative(a in arb_rga(), b in arb_rga()) {
+        let mut ab = a.clone();
+        ab.merge(&b);
+
+        let mut ba = b.clone();
+        ba.merge(&a);
+
+        prop_assert_eq!(ab, ba);
+    }
+
+    #[test]
+    fn rga_merge_is_associative(
+        a in arb_rga(),
+        b in arb_rga(),
+        c in arb_rga(),
+    ) {
+        let mut left = a.clone();
+        left.merge(&b);
+        left.merge(&c);
+
+        let mut bc = b.clone();
+        bc.merge(&c);
+        let mut right = a.clone();
+        right.merge(&bc);
+
+        prop_assert_eq!(left, right);
+    }
+
+    #[test]
+    fn rga_merge_is_idempotent(a in arb_rga()) {
+        let mut merged = a.clone();
+        merged.merge(&a);
+        prop_assert_eq!(merged, a);
+    }
+
+    /// Konvergens på rendret tekst: etter merge i begge retninger må strengene
+    /// være identiske. Dette er den faktiske garantien til en bruker.
+    #[test]
+    fn rga_renders_consistently_after_merge(a in arb_rga(), b in arb_rga()) {
+        let mut ab = a.clone();
+        ab.merge(&b);
+        let mut ba = b.clone();
+        ba.merge(&a);
+        prop_assert_eq!(ab.to_string(), ba.to_string());
     }
 }
