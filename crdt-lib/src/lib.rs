@@ -13,7 +13,7 @@
 //!
 //! ## Familier
 //!
-//! Dette biblioteket implementerer *state-based* (CvRDT) varianter. Disse er
+//! Dette biblioteket implementerer *state-based* (`CvRDT`) varianter. Disse er
 //! definert av en `merge`-operasjon som må være:
 //!
 //! - **Kommutativ:** `merge(a, b) = merge(b, a)`
@@ -27,9 +27,8 @@
 //!
 //! - [`counter::GCounter`] — grow-only counter
 //! - [`counter::PNCounter`] — counter som støtter inkrement og dekrement
-//! - [`register::LwwRegister`] — last-writer-wins register
-//! - [`set::OrSet`] — observed-remove set
-//! - [`text::Rga`] — replicated growable array (tekst-CRDT)
+//!
+//! Kommer etter hvert: `LwwRegister`, `OrSet`, og `Rga`.
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
