@@ -5,15 +5,9 @@ members = ["crdt-lib", "crdt-demo"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-<<<<<<< HEAD
-authors = ["<ditt navn>"]
-license = "MIT"
-repository = "https://github.com/<brukernavn>/crusty-crdt"
-=======
 authors = ["shizaahmad27"]
 license = "MIT"
 repository = "https://github.com/shizaahmad27/crusty-crdt"
->>>>>>> 8e6760f35255d085662623707ec51acbf0e1d572
 rust-version = "1.75"
 
 [workspace.lints.rust]
