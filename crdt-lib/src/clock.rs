@@ -96,7 +96,10 @@ impl LamportClock {
     /// Lager en ny klokke for en gitt replika, startet på 0.
     #[must_use]
     pub const fn new(replica: ReplicaId) -> Self {
-        Self { counter: 0, replica }
+        Self {
+            counter: 0,
+            replica,
+        }
     }
 
     /// Genererer et nytt tidsstempel for en lokal hendelse.

@@ -10,7 +10,7 @@
 //!
 //! Hvert tegn lagres som en `Node` med:
 //! - en unik `id` (vår Lamport-stempel),
-//! - en `parent` som er IDen til tegnet det ble satt inn etter (`None` for det
+//! - en `parent` som er `IDen` til tegnet det ble satt inn etter (`None` for det
 //!   første tegnet),
 //! - selve `value` (her: `char`),
 //! - et `deleted`-flagg (tombstone).
@@ -97,7 +97,7 @@ impl Rga {
         self.sort_nodes();
     }
 
-    /// Markerer noden med gitt ID som slettet (tombstone). Hvis IDen ikke
+    /// Markerer noden med gitt ID som slettet (tombstone). Hvis `IDen` ikke
     /// finnes, er det en no-op.
     pub fn delete(&mut self, id: LamportTimestamp) {
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
@@ -105,7 +105,7 @@ impl Rga {
         }
     }
 
-    /// Returnerer IDen til den synlige noden på posisjon `index` i den
+    /// Returnerer `IDen` til den synlige noden på posisjon `index` i den
     /// renderte teksten. Brukes for å konvertere "brukerens posisjon" til en
     /// stabil ID som kan settes inn etter.
     #[must_use]
@@ -153,30 +153,27 @@ impl Rga {
         let original = std::mem::take(&mut self.nodes);
 
         // Indeksér nodene etter ID for raskt oppslag.
-        let by_parent: std::collections::BTreeMap<
-            Option<LamportTimestamp>,
-            Vec<Node>,
-        > = {
-            let mut map: std::collections::BTreeMap<_, Vec<Node>> = std::collections::BTreeMap::new();
+        let by_parent: std::collections::BTreeMap<Option<LamportTimestamp>, Vec<Node>> = {
+            let mut map: std::collections::BTreeMap<_, Vec<Node>> =
+                std::collections::BTreeMap::new();
             for node in original {
                 map.entry(node.parent).or_default().push(node);
             }
             // Sorter barn under hver forelder etter ID synkende.
             for children in map.values_mut() {
-                children.sort_by(|a, b| b.id.cmp(&a.id));
+                children.sort_by_key(|b| std::cmp::Reverse(b.id));
             }
             map
         };
 
         let mut result = Vec::new();
-        self.append_in_order(&by_parent, None, &mut result);
+        Self::append_in_order(&by_parent, None, &mut result);
         self.nodes = result;
     }
 
     /// Rekursiv hjelper: traverserer "etter denne forelderen, så hennes barn,
     /// så deres barn", som er nøyaktig RGA-rekkefølgen.
     fn append_in_order(
-        &self,
         by_parent: &std::collections::BTreeMap<Option<LamportTimestamp>, Vec<Node>>,
         parent: Option<LamportTimestamp>,
         out: &mut Vec<Node>,
@@ -185,7 +182,7 @@ impl Rga {
             for child in children {
                 let child_id = child.id;
                 out.push(child.clone());
-                self.append_in_order(by_parent, Some(child_id), out);
+                Self::append_in_order(by_parent, Some(child_id), out);
             }
         }
     }
@@ -198,17 +195,16 @@ impl Crdt for Rga {
         // Dette bevarer monotonisitet: en sletting kan ikke "angres".
         use std::collections::BTreeMap;
 
-        let mut by_id: BTreeMap<LamportTimestamp, Node> = self
-            .nodes
-            .drain(..)
-            .map(|n| (n.id, n))
-            .collect();
+        let mut by_id: BTreeMap<LamportTimestamp, Node> =
+            self.nodes.drain(..).map(|n| (n.id, n)).collect();
 
         for node in &other.nodes {
             by_id
                 .entry(node.id)
                 .and_modify(|existing| {
                     existing.deleted = existing.deleted || node.deleted;
+                    existing.value = existing.value.max(node.value);
+                    existing.parent = std::cmp::max(existing.parent, node.parent);
                 })
                 .or_insert_with(|| node.clone());
         }
