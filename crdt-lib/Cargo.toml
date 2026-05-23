@@ -1,0 +1,19 @@
+[package]
+name = "crdt-lib"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Conflict-free Replicated Data Types implemented from scratch in Rust"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+proptest = "1"
+serde_json = "1"
