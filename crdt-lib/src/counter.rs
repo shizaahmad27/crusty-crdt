@@ -122,7 +122,9 @@ impl Crdt for GCounter {
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PNCounter {
+    /// G-Counter som teller alle inkrementer per replika.
     positive: GCounter,
+    /// G-Counter som teller alle dekrementer per replika.
     negative: GCounter,
 }
 
@@ -200,8 +202,6 @@ mod tests {
 
     #[test]
     fn g_counter_merge_takes_max_per_replica() {
-        // To noder har sett ulike antall inkrementer fra samme replika.
-        // Etter merge skal vi se den høyeste observerte verdien.
         let mut a = GCounter::new();
         let mut b = GCounter::new();
         a.increment(1, 3);
@@ -243,7 +243,6 @@ mod tests {
         b.increment(2, 5);
         b.decrement(2, 1);
         a.merge(&b);
-        // a: +10−2 = 8, b: +5−1 = 4, totalt: 12
         assert_eq!(a.value(), 12);
     }
 }
