@@ -31,6 +31,7 @@ use crate::protocol::{read_message, write_message, Message};
 /// flere tokio-oppgaver kan ha tilgang.
 pub struct NodeState {
     /// Replika-IDen til denne noden, brukt som Lamport-klokke-eier.
+    #[allow(dead_code)]
     pub replica: ReplicaId,
     /// Lokal Lamport-klokke, brukt for å generere unike tagger til add-er.
     pub clock: LamportClock,

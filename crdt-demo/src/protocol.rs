@@ -27,8 +27,8 @@ pub async fn write_message<W>(stream: &mut W, message: &Message) -> io::Result<(
 where
     W: AsyncWriteExt + Unpin,
 {
-    let payload = bincode::serialize(message)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let payload =
+        bincode::serialize(message).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let len = u32::try_from(payload.len())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "message too large"))?;
     stream.write_all(&len.to_be_bytes()).await?;

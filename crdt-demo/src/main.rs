@@ -59,7 +59,9 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
         .init();
 
     let args = Args::parse();
@@ -75,7 +77,10 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    println!("Node {} kjører. Kommandoer: add <x>, remove <x>, list, quit", args.id);
+    println!(
+        "Node {} kjører. Kommandoer: add <x>, remove <x>, list, quit",
+        args.id
+    );
 
     let stdin = tokio::io::stdin();
     let mut lines = BufReader::new(stdin).lines();
@@ -92,18 +97,15 @@ async fn main() -> Result<()> {
 
         match cmd {
             "add" if !arg.is_empty() => {
-                let mut s = state.lock().await;
-                s.add(arg.to_string());
+                state.lock().await.add(arg.to_string());
                 println!("la til '{arg}'");
             }
             "remove" | "rm" if !arg.is_empty() => {
-                let mut s = state.lock().await;
-                s.remove(arg);
+                state.lock().await.remove(arg);
                 println!("fjernet '{arg}'");
             }
             "list" | "ls" => {
-                let s = state.lock().await;
-                let mut items: Vec<&String> = s.list.iter().collect();
+                let mut items: Vec<String> = state.lock().await.list.iter().cloned().collect();
                 items.sort();
                 if items.is_empty() {
                     println!("(tom)");

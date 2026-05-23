@@ -122,7 +122,7 @@ proptest! {
 
         let mut bc = b.clone();
         bc.merge(&c);
-        let mut right = a.clone();
+        let mut right = a;
         right.merge(&bc);
 
         prop_assert_eq!(left, right);
@@ -175,7 +175,7 @@ proptest! {
 
         let mut bc = b.clone();
         bc.merge(&c);
-        let mut right = a.clone();
+        let mut right = a;
         right.merge(&bc);
 
         prop_assert_eq!(left, right);
@@ -217,7 +217,7 @@ proptest! {
 
         let mut bc = b.clone();
         bc.merge(&c);
-        let mut right = a.clone();
+        let mut right = a;
         right.merge(&bc);
 
         prop_assert_eq!(left, right);
@@ -277,7 +277,7 @@ proptest! {
 
         let mut bc = b.clone();
         bc.merge(&c);
-        let mut right = a.clone();
+        let mut right = a;
         right.merge(&bc);
 
         prop_assert_eq!(left, right);
@@ -335,10 +335,11 @@ fn arb_rga() -> impl Strategy<Value = Rga> {
             counter += 1;
             let id = LamportTimestamp::new(counter, replica);
             let len = r.len();
-            let parent = if len == 0 || pos as usize % (len + 1) == 0 {
+            let pos = usize::try_from(pos).expect("arb range fits in usize");
+            let parent = if len == 0 || pos % (len + 1) == 0 {
                 None
             } else {
-                r.id_at_visible_index((pos as usize) % len)
+                r.id_at_visible_index(pos % len)
             };
             r.insert_after(parent, ch, id);
         }
@@ -370,7 +371,7 @@ proptest! {
 
         let mut bc = b.clone();
         bc.merge(&c);
-        let mut right = a.clone();
+        let mut right = a;
         right.merge(&bc);
 
         prop_assert_eq!(left, right);

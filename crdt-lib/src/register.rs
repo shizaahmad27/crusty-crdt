@@ -6,6 +6,8 @@
 //! som har høyest tidsstempel, der "tid" er en Lamport-klokke for å garantere
 //! konvergens uavhengig av fysiske klokker.
 
+use std::cmp::Ordering;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{clock::LamportTimestamp, Crdt};
@@ -105,7 +107,7 @@ impl<T> LwwRegister<T> {
     }
 }
 
-impl<T: Clone + PartialEq> Crdt for LwwRegister<T> {
+impl<T: Clone + PartialEq + Ord> Crdt for LwwRegister<T> {
     fn merge(&mut self, other: &Self) {
         match (&self.entry, &other.entry) {
             (_, None) => {
@@ -115,18 +117,15 @@ impl<T: Clone + PartialEq> Crdt for LwwRegister<T> {
                 self.entry = Some(other_entry.clone());
             }
             (Some(mine), Some(theirs)) => {
-                if theirs.timestamp > mine.timestamp {
-                    self.entry = Some(theirs.clone());
-                }
-                // Hvis like, gir tie-break på ReplicaId i LamportTimestamp
-                // konsistent vinner — men siden vi allerede sjekket `>`, er
-                // resultatet uansett at vi beholder vår nåværende ved likhet.
-                // For konvergens på tvers av noder bruker vi en deterministisk
-                // verdi-sammenligning som siste tie-breaker:
-                else if theirs.timestamp == mine.timestamp && theirs.value != mine.value {
-                    // Dette skal ikke kunne skje hvis ReplicaId er unik per
-                    // replika, men vi er defensive: ved nøyaktig likt
-                    // tidsstempel beholder vi vår egen verdi for determinisme.
+                match theirs.timestamp.cmp(&mine.timestamp) {
+                    Ordering::Greater => self.entry = Some(theirs.clone()),
+                    Ordering::Equal if theirs.value != mine.value => {
+                        // Deterministisk tie-break når tidsstempel er identisk.
+                        if theirs.value > mine.value {
+                            self.entry = Some(theirs.clone());
+                        }
+                    }
+                    Ordering::Less | Ordering::Equal => {}
                 }
             }
         }

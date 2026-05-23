@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 51fc21f424a32fd9d1b8b5522979c228ecdce5f3690dc26414898be3ad6d7e4c # shrinks to a = Rga { nodes: [Node { id: LamportTimestamp { counter: 2, replica: 0 }, parent: None, value: 'a', deleted: false }] }, b = Rga { nodes: [Node { id: LamportTimestamp { counter: 2, replica: 0 }, parent: None, value: ' ', deleted: false }] }
+cc 82dd99f960393e835a4ae208f18c5a2692347952848ff267a4e6ec9f6364330b # shrinks to a = LwwRegister { entry: Some(Entry { value: 2, timestamp: LamportTimestamp { counter: 19, replica: 2 } }) }, b = LwwRegister { entry: Some(Entry { value: 0, timestamp: LamportTimestamp { counter: 19, replica: 2 } }) }
