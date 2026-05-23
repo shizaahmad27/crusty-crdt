@@ -1,13 +1,11 @@
-//! Logiske klokker for CRDT-er.
+//! Logical clocks for CRDTs.
 //!
-//! Distribuerte systemer kan ikke stole på fysiske klokker for å avgjøre
-//! rekkefølge mellom hendelser: klokker er aldri perfekt synkronisert, og de
-//! kan gå baklengs ved NTP-korreksjoner. *Logiske klokker* løser dette ved å
-//! definere "tid" som et tall som vokser med kausalitet, ikke med
-//! veggklokke-tid.
+//! Distributed systems cannot rely on physical clocks for event ordering: clocks
+//! are never perfectly synchronized and can go backwards during NTP corrections.
+//! Logical clocks solve this by defining "time" as a counter that grows with
+//! causality rather than wall-clock time.
 //!
-//! Denne modulen implementerer Lamport-klokken (Lamport, 1978), den enkleste
-//! formen for logisk klokke.
+//! This module implements the Lamport clock (Lamport, 1978).
 
 use std::cmp::Ordering;
 
@@ -15,38 +13,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::ReplicaId;
 
-/// Et Lamport-tidsstempel, utvidet med `ReplicaId` for total ordning.
+/// A Lamport timestamp extended with `ReplicaId` for total ordering.
 ///
-/// # Konsept
-///
-/// En ren Lamport-klokke gir kun en *partiell* ordning på hendelser:
-/// `clock(a) < clock(b)` betyr ikke nødvendigvis at `a` skjedde før `b` — de
-/// kan ha vært samtidige (concurrent). For LWW-Register trenger vi imidlertid
-/// en total ordning slik at vi alltid kan utpeke en vinner. Dette løses ved å
-/// bruke `(klokke, replika-id)` som en sammensatt nøkkel: ved likt klokkeslett
-/// vinner den høyeste replika-IDen.
-///
-/// Dette er deterministisk og konsistent på tvers av noder, men det er
-/// vilkårlig hvilken replika som vinner. Det er en akseptabel pris for
-/// konvergens.
+/// A plain Lamport clock gives only a *partial* order. To always break ties
+/// deterministically, timestamps use `(counter, replica_id)` as a composite
+/// key: the higher replica ID wins when counters are equal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LamportTimestamp {
-    /// Den logiske klokkeverdien.
+    /// The logical clock value.
     pub counter: u64,
-    /// Replikaen som genererte tidsstempelet (brukt til tie-breaking).
+    /// The replica that generated this timestamp (used for tie-breaking).
     pub replica: ReplicaId,
 }
 
 impl LamportTimestamp {
-    /// Lager et nytt tidsstempel.
+    /// Creates a new timestamp.
     #[must_use]
     pub const fn new(counter: u64, replica: ReplicaId) -> Self {
         Self { counter, replica }
     }
 }
 
-// Sammenligning: først på counter, deretter på replika-id som tie-breaker.
-// Dette gir en *total* ordning på alle tidsstempler på tvers av noder.
+// Order by counter first, then replica ID as a tie-breaker, giving a total order.
 impl Ord for LamportTimestamp {
     fn cmp(&self, other: &Self) -> Ordering {
         self.counter
@@ -61,31 +49,13 @@ impl PartialOrd for LamportTimestamp {
     }
 }
 
-/// En Lamport-klokke som genererer monotont stigende tidsstempler.
+/// A Lamport clock that generates monotonically increasing timestamps.
 ///
-/// Reglene er:
+/// Rules:
+/// 1. **Local event:** increment counter by 1.
+/// 2. **Receive message with clock `t`:** set counter to `max(own, t) + 1`.
 ///
-/// 1. **Lokal hendelse:** øk klokken med 1.
-/// 2. **Motta melding med klokke `t`:** sett klokken til `max(egen, t) + 1`.
-///
-/// Disse to reglene garanterer at hvis hendelse `a` *kausalt påvirker*
-/// hendelse `b`, så er `clock(a) < clock(b)`. Det motsatte gjelder ikke:
-/// samtidige hendelser kan ha vilkårlig forhold mellom klokkeverdiene sine.
-///
-/// # Eksempel
-///
-/// ```
-/// use crdt_lib::clock::LamportClock;
-///
-/// let mut clock = LamportClock::new(1);
-/// let t1 = clock.tick();
-/// let t2 = clock.tick();
-/// assert!(t2 > t1);
-///
-/// // Mottar en melding med høyere klokke
-/// let observed = clock.observe(100);
-/// assert!(observed.counter > 100);
-/// ```
+
 #[derive(Debug, Clone, Default)]
 pub struct LamportClock {
     counter: u64,
@@ -93,7 +63,7 @@ pub struct LamportClock {
 }
 
 impl LamportClock {
-    /// Lager en ny klokke for en gitt replika, startet på 0.
+    /// Creates a new clock for the given replica, starting at 0.
     #[must_use]
     pub const fn new(replica: ReplicaId) -> Self {
         Self {
@@ -102,26 +72,22 @@ impl LamportClock {
         }
     }
 
-    /// Genererer et nytt tidsstempel for en lokal hendelse.
-    ///
-    /// Øker klokken med 1 og returnerer den nye verdien sammen med
-    /// replika-IDen.
+    /// Generates a new timestamp for a local event, advancing the counter by 1.
     pub fn tick(&mut self) -> LamportTimestamp {
         self.counter = self.counter.saturating_add(1);
         LamportTimestamp::new(self.counter, self.replica)
     }
 
-    /// Observerer en innkommende klokkeverdi og oppdaterer egen klokke.
+    /// Updates the clock after observing an incoming timestamp.
     ///
-    /// Setter klokken til `max(egen, mottatt) + 1`. Dette garanterer at en
-    /// hendelse som skjer etter mottak av meldingen får et tidsstempel som er
-    /// høyere enn både egen tidligere klokke og avsenderens klokke.
+    /// Sets the counter to `max(own, observed) + 1`, ensuring any subsequent
+    /// local event gets a timestamp strictly greater than both.
     pub fn observe(&mut self, observed: u64) -> LamportTimestamp {
         self.counter = self.counter.max(observed).saturating_add(1);
         LamportTimestamp::new(self.counter, self.replica)
     }
 
-    /// Returnerer den nåværende klokkeverdien uten å øke den.
+    /// Returns the current counter value without advancing it.
     #[must_use]
     pub const fn current(&self) -> u64 {
         self.counter
@@ -152,7 +118,7 @@ mod tests {
         let mut c = LamportClock::new(1);
         c.tick(); // counter = 1
         c.tick(); // counter = 2
-        let t = c.observe(0); // counter blir max(2, 0) + 1 = 3
+        let t = c.observe(0); // counter = max(2, 0) + 1 = 3
         assert_eq!(t.counter, 3);
     }
 
@@ -165,8 +131,8 @@ mod tests {
 
     #[test]
     fn counter_dominates_replica_in_ordering() {
-        let a = LamportTimestamp::new(10, 1); // høyere counter
-        let b = LamportTimestamp::new(5, 99); // høyere replika, men lavere counter
+        let a = LamportTimestamp::new(10, 1); // higher counter
+        let b = LamportTimestamp::new(5, 99); // higher replica, lower counter
         assert!(a > b);
     }
 }

@@ -1,11 +1,9 @@
-//! Set-CRDT-er: Observed-Remove Set (OR-Set).
+//! Set CRDTs: Observed-Remove Set (OR-Set).
 //!
-//! En distribuert mengde er overraskende vanskelig fordi samtidige `add` og
-//! `remove` av samme element er semantisk i konflikt: skal elementet være med
-//! eller ikke? OR-Set løser dette ved å la hver `add` opprette en unik *tag*
-//! som identifiserer akkurat den tilføyelsen, og bare la `remove` fjerne tags
-//! den faktisk har observert. Dette gir "add wins" semantikk: en samtidig add
-//! overlever en remove.
+//! A distributed set is tricky because concurrent `add` and `remove` of the
+//! same element conflict. OR-Set resolves this by tagging each `add` with a
+//! unique token, and only allowing `remove` to delete tags it has actually
+//! observed. This gives **add-wins** semantics: a concurrent add survives a remove.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::Hash;
@@ -14,27 +12,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::{clock::LamportTimestamp, Crdt};
 
-/// Et Observed-Remove Set.
+/// An Observed-Remove Set.
 ///
-/// # Konsept
+/// # Concept
 ///
-/// Hver tilføyelse av et element `x` får en unik tag (her: et
-/// `LamportTimestamp`). Settet holder en map fra elementer til sine tagger, og
-/// en mengde av "tombstones" — tagger som har blitt fjernet. Et element
-/// regnes som med i settet hvis det har minst én tag som *ikke* er en
-/// tombstone.
+/// Each `add(x)` creates a unique tag (a `LamportTimestamp`). The set stores
+/// a map from elements to their tags, and a set of tombstoned tags. An element
+/// is considered present if it has at least one tag that is not a tombstone.
 ///
-/// `remove(x)` flytter alle nåværende tags for `x` til tombstones. Hvis en
-/// annen replika samtidig har lagt til `x` med en ny tag som denne replikaen
-/// ikke har sett, vil ikke remove kunne røre den taggen — og elementet vil
-/// overleve mergen. Dette er **add-wins** semantikken.
+/// `remove(x)` moves all current tags for `x` into tombstones. A concurrent
+/// `add` from another replica uses a new tag that this replica hasn't seen, so
+/// the remove cannot touch it — the element survives the merge.
 ///
-/// # CRDT-egenskaper
-///
-/// `merge` er union av `tags` og union av `tombstones`. Union på mengder er
-/// kommutativ, assosiativ og idempotent, så CRDT-lovene holder.
-///
-/// # Eksempel
+/// # Example
 ///
 /// ```
 /// use crdt_lib::clock::LamportClock;
@@ -43,21 +33,21 @@ use crate::{clock::LamportTimestamp, Crdt};
 ///
 /// let mut clock = LamportClock::new(1);
 /// let mut s = OrSet::new();
-/// s.add("melk", clock.tick());
-/// s.add("brød", clock.tick());
-/// assert!(s.contains(&"melk"));
+/// s.add("milk", clock.tick());
+/// s.add("bread", clock.tick());
+/// assert!(s.contains(&"milk"));
 ///
-/// s.remove(&"melk");
-/// assert!(!s.contains(&"melk"));
+/// s.remove(&"milk");
+/// assert!(!s.contains(&"milk"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrSet<T>
 where
     T: Ord + Clone,
 {
-    /// Per-element mengde av tagger som har blitt lagt til.
+    /// Per-element set of tags that have been added.
     tags: BTreeMap<T, BTreeSet<LamportTimestamp>>,
-    /// Mengde av tagger som har blitt fjernet (tombstones).
+    /// Tags that have been removed (tombstones).
     tombstones: BTreeSet<LamportTimestamp>,
 }
 
@@ -77,27 +67,23 @@ impl<T> OrSet<T>
 where
     T: Ord + Clone + Hash,
 {
-    /// Lager et tomt OR-Set.
+    /// Creates an empty OR-Set.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Legger til `value` med en gitt unik tag.
+    /// Adds `value` with a unique tag.
     ///
-    /// Taggen må være globalt unik (typisk fra en `LamportClock`). Hvis
-    /// samme tag brukes for to forskjellige add-er, vil oppførselen være
-    /// udefinert i forhold til konvergens.
+    /// The tag must be globally unique (typically from a `LamportClock`).
     pub fn add(&mut self, value: T, tag: LamportTimestamp) {
         self.tags.entry(value).or_default().insert(tag);
     }
 
-    /// Fjerner `value` ved å markere alle dets nåværende observerte tagger
-    /// som tombstones.
+    /// Removes `value` by tombstoning all its currently observed tags.
     ///
-    /// Dette er det "observed" i "observed-remove": vi kan kun fjerne tagger
-    /// vi faktisk har sett. Tagger som blir lagt til av andre replikaer
-    /// senere (eller samtidig, men ikke synlige ennå) vil overleve fjerningen.
+    /// Tags added concurrently by other replicas (not yet visible to this
+    /// replica) will not be touched and will survive the merge.
     pub fn remove(&mut self, value: &T) {
         if let Some(tags) = self.tags.get(value) {
             for tag in tags {
@@ -106,8 +92,7 @@ where
         }
     }
 
-    /// Returnerer `true` hvis `value` har minst én tag som ikke er en
-    /// tombstone — dvs. er fortsatt i settet.
+    /// Returns `true` if `value` has at least one non-tombstoned tag.
     #[must_use]
     pub fn contains(&self, value: &T) -> bool {
         self.tags
@@ -115,7 +100,7 @@ where
             .is_some_and(|tags| tags.iter().any(|tag| !self.tombstones.contains(tag)))
     }
 
-    /// Returnerer en iterator over alle elementer som er med i settet.
+    /// Returns an iterator over all elements currently in the set.
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.tags
             .iter()
@@ -123,13 +108,13 @@ where
             .map(|(value, _)| value)
     }
 
-    /// Returnerer antall elementer i settet.
+    /// Returns the number of elements in the set.
     #[must_use]
     pub fn len(&self) -> usize {
         self.iter().count()
     }
 
-    /// Returnerer `true` hvis settet er tomt.
+    /// Returns `true` if the set contains no elements.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.iter().next().is_none()
@@ -141,14 +126,14 @@ where
     T: Ord + Clone + Hash,
 {
     fn merge(&mut self, other: &Self) {
-        // Union av tags per element.
+        // Union of tags per element.
         for (value, other_tags) in &other.tags {
             self.tags
                 .entry(value.clone())
                 .or_default()
                 .extend(other_tags.iter().copied());
         }
-        // Union av tombstones.
+        // Union of tombstones.
         self.tombstones.extend(other.tombstones.iter().copied());
     }
 }
@@ -184,41 +169,40 @@ mod tests {
 
     #[test]
     fn re_add_after_remove_works() {
-        // Etter remove kan elementet legges til igjen med en ny tag.
+        // After a remove, the element can be re-added with a new tag.
         let mut clock = LamportClock::new(1);
         let mut s = OrSet::new();
         s.add("a", clock.tick());
         s.remove(&"a");
-        s.add("a", clock.tick()); // ny tag, ikke tombstoned
+        s.add("a", clock.tick()); // new tag, not tombstoned
         assert!(s.contains(&"a"));
     }
 
     #[test]
     fn concurrent_add_wins_over_remove() {
-        // Dette er kjernesemantikken til OR-Set.
-        // Replika 1 legger til, deretter fjerner.
+        // Core OR-Set semantics.
+        // Replica 1 adds then removes.
         let mut clock1 = LamportClock::new(1);
         let mut a = OrSet::new();
         let tag1 = clock1.tick();
         a.add("x", tag1);
         a.remove(&"x");
 
-        // Replika 2 starter fra samme initialtilstand (med tag1), men legger
-        // til en ny instans samtidig — uten å se replika 1 sin remove.
+        // Replica 2 starts from the same initial state but adds a new instance
+        // concurrently, without seeing replica 1's remove.
         let mut clock2 = LamportClock::new(2);
         let mut b = OrSet::new();
-        b.add("x", tag1); // har sett den opprinnelige tilføyelsen
-        b.add("x", clock2.tick()); // ny samtidig tilføyelse
+        b.add("x", tag1); // saw the original add
+        b.add("x", clock2.tick()); // concurrent add with a new tag
 
-        // Merge: a sin remove fjerner kun tag1; b sin nye tag overlever.
+        // Merge: a's remove only tombstones tag1; b's new tag survives.
         a.merge(&b);
         assert!(a.contains(&"x"));
     }
 
     #[test]
     fn merge_is_symmetric_for_concurrent_add_remove() {
-        // Samme scenario som over, men sjekker at merge-rekkefølge ikke har
-        // betydning — kommutativitet er CRDT-kjernen.
+        // Same scenario as above, but verifies merge order doesn't matter.
         let mut clock1 = LamportClock::new(1);
         let mut clock2 = LamportClock::new(2);
 

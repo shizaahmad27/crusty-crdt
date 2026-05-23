@@ -1,34 +1,16 @@
 //! # crdt-lib
 //!
-//! Et bibliotek for Conflict-free Replicated Data Types (CRDTs) implementert
-//! fra grunnen av i Rust. Biblioteket er laget som en bacheloroppgave og fokuserer
-//! på pedagogisk klarhet og matematisk korrekthet fremfor maksimal ytelse.
+//! State-based Conflict-free Replicated Data Types (CRDTs) implemented from
+//! scratch in Rust. Each CRDT's `merge` is commutative, associative, and
+//! idempotent, guaranteeing convergence regardless of message order or duplication.
 //!
-//! ## Hva er en CRDT?
-//!
-//! En CRDT er en datastruktur som kan repliseres på tvers av flere noder,
-//! oppdateres uavhengig og parallelt på hver node uten koordinering mellom dem,
-//! og som garantert vil konvergere til samme tilstand på alle noder så lenge
-//! de samme oppdateringene til slutt blir levert.
-//!
-//! ## Familier
-//!
-//! Dette biblioteket implementerer *state-based* (`CvRDT`) varianter. Disse er
-//! definert av en `merge`-operasjon som må være:
-//!
-//! - **Kommutativ:** `merge(a, b) = merge(b, a)`
-//! - **Assosiativ:** `merge(merge(a, b), c) = merge(a, merge(b, c))`
-//! - **Idempotent:** `merge(a, a) = a`
-//!
-//! Disse tre egenskapene gjør at tilstanden danner en *join-semilattice*, og at
-//! konvergens er garantert uansett rekkefølge eller duplisering av meldinger.
-//!
-//! ## Typer som er implementert
+//! ## Types
 //!
 //! - [`counter::GCounter`] — grow-only counter
-//! - [`counter::PNCounter`] — counter som støtter inkrement og dekrement
-//!
-//! Kommer etter hvert: `LwwRegister`, `OrSet`, og `Rga`.
+//! - [`counter::PNCounter`] — counter supporting increment and decrement
+//! - [`register::LwwRegister`] — last-writer-wins register
+//! - [`set::OrSet`] — observed-remove set with add-wins semantics
+//! - [`text::Rga`] — replicated growable array for collaborative text
 
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
@@ -39,18 +21,18 @@ pub mod register;
 pub mod set;
 pub mod text;
 
-/// Grensesnitt som alle state-based CRDTs i dette biblioteket implementerer.
+/// Trait implemented by all state-based CRDTs in this library.
 ///
-/// Implementasjoner må garantere at `merge` er kommutativ, assosiativ og
-/// idempotent. Disse egenskapene verifiseres med property-based tester.
+/// Implementations must guarantee that `merge` is commutative, associative, and
+/// idempotent. These properties are verified by property-based tests in
+/// `tests/properties.rs`.
 pub trait Crdt {
-    /// Slår sammen `other` inn i `self`. Etter dette skal `self` representere
-    /// minste øvre grense (join) av de to tilstandene i lattisen.
+    /// Merges `other` into `self`, producing the join of the two states in the lattice.
     fn merge(&mut self, other: &Self);
 }
 
-/// Unik identifikator for en node i et CRDT-system.
+/// Unique identifier for a node in a CRDT system.
 ///
-/// Hver node må ha en globalt unik `ReplicaId`. I dette biblioteket bruker vi
-/// en enkel `u64`; i et produksjonssystem ville man typisk brukt UUID.
+/// Must be globally unique across all replicas. This library uses `u64`;
+/// a production system would typically use a UUID.
 pub type ReplicaId = u64;

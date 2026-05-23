@@ -4,112 +4,104 @@
 [![Docs](https://img.shields.io/badge/docs-rustdoc-blue)](https://shizaahmad27.github.io/crusty-crdt/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> Et Rust-bibliotek for Conflict-free Replicated Data Types (CRDTs), implementert
-> fra grunnen av som prosjektoppgave i datakommunikasjon. Inkluderer fem
-> CRDT-typer og en peer-to-peer demoapplikasjon.
+> A Rust library of Conflict-free Replicated Data Types (CRDTs), implemented
+> from scratch as a bachelor's project in distributed systems. Includes five
+> CRDT types and a peer-to-peer demo application.
 
-**Siste CI-kjøring:** [GitHub Actions](https://github.com/shizaahmad27/crusty-crdt/actions/workflows/ci.yml) (badge over viser status for siste kjøring på `main`)
+**Latest CI run:** [GitHub Actions](https://github.com/shizaahmad27/crusty-crdt/actions/workflows/ci.yml) (badge above shows status for the latest run on `main`)
 
-**API-dokumentasjon:** [shizaahmad27.github.io/crusty-crdt](https://shizaahmad27.github.io/crusty-crdt/)
-
----
-
-## Introduksjon
-
-Distribuerte applikasjoner som Google Docs, Figma og Apple Notes lar flere brukere redigere samme data samtidig, også når noen av brukerne er offline. Når endringene skal slås sammen, oppstår et fundamentalt problem: hvordan løse konflikter mellom samtidige endringer, deterministisk, uten en sentral autoritet?
-
-*Conflict-free Replicated Data Types* (CRDTs) er en familie datastrukturer som løser dette ved konstruksjon. Hver node kan oppdatere sin lokale kopi uten koordinering, og en matematisk garantert konvergens sørger for at alle noder ender med samme tilstand når de utveksler oppdateringer. Garantien hviler på at `merge`-operasjonen er kommutativ, assosiativ og idempotent. Det er  egenskaper som tilsammen gjør tilstandsrommet til en *join-semilattice*.
-
-Dette prosjektet implementerer fem state-based CRDTs fra grunnen av i Rust, verifiserer hver med property-based testing, og demonstrerer dem i en peer-to-peer applikasjon med gossip-protokoll over TCP. Alle CRDT-egenskapene er bevist matematisk gjennom ~4900 automatisk genererte testtilfeller per testkjøring.
+**API documentation:** [shizaahmad27.github.io/crusty-crdt](https://shizaahmad27.github.io/crusty-crdt/)
 
 ---
 
-## Implementert funksjonalitet
+## Introduction
 
-### CRDT-typer
+Distributed applications like Google Docs, Figma, and Apple Notes let multiple users edit the same data simultaneously, even while offline. When changes are reconciled, a fundamental problem arises: how do you resolve conflicts between concurrent edits, deterministically, without a central authority?
 
+*Conflict-free Replicated Data Types* (CRDTs) solve this by construction. Each node can update its local copy without coordination, and a mathematically guaranteed convergence ensures all nodes end up in the same state once they exchange updates. The guarantee rests on `merge` being commutative, associative, and idempotent — properties that together make the state space a *join-semilattice*.
 
-| Type             | Modul                      | Beskrivelse                                                          |
-| ---------------- | -------------------------- | -------------------------------------------------------------------- |
-| **G-Counter**    | `counter::GCounter`        | Grow-only counter med per-replika tellinger og elementvis max merge. |
-| **PN-Counter**   | `counter::PNCounter`       | Positive-negative counter konstruert fra to G-Counters.              |
-| **LWW-Register** | `register::LwwRegister<T>` | Last-writer-wins register med Lamport-tidsstempler.                  |
-| **OR-Set**       | `set::OrSet<T>`            | Observed-Remove Set med add-wins semantikk.                          |
-| **RGA**          | `text::Rga`                | Replicated Growable Array — tekst-CRDT med stabile posisjons-ID-er.  |
-
-
-### Støttekomponenter
-
-- `**clock::LamportClock`** og `clock::LamportTimestamp`. Det er logiske klokker med total ordning via `(counter, replica_id)` tie-breaking.
-- `Crdt`**-trait**. Et felles grensesnitt for alle state-based CRDTs.
-
-### Demoapplikasjon
-
-- Peer-to-peer noder som synkroniserer en delt `OrSet<String>` (handleliste).
-- Asynkron arkitektur basert på `tokio` med tre samtidige oppgaver per node: innkommende TCP-lytter, periodisk gossip-løkke, og interaktiv stdin-REPL.
-- Lengde-prefiksert wire-protokoll med `bincode`-serialisering.
-- Robust mot frakobling: noder kan startes, stoppes og restartes uten at det påvirker konvergensen.
-
-### Verifikasjon
-
-- **64 enhetstester** dekker normal bruk og andre edge cases.
-- **19 property-tester** verifiserer kommutativitet, assosiativitet og idempotens for hver CRDT-type, samt sterk konvergens. Hver property kjøres mot 256 tilfeldig genererte tilfeller per `cargo test`-kjøring.
-- **Streng CI**: tester på Linux, macOS og Windows; `clippy` med`pedantic + nursery`; `cargo fmt --check`; rustdoc med`-D warnings`; `unsafe_code = "forbid"` på hele workspacet.
+This project implements five state-based CRDTs from scratch in Rust, verifies each with property-based testing, and demonstrates them in a peer-to-peer application with a gossip protocol over TCP. All CRDT properties are machine-verified through ~4900 automatically generated test cases per run.
 
 ---
 
-## Fremtidig arbeid
+## Implemented functionality
 
-Følgende er bevisst utelatt fra denne implementasjonen. Hvert punkt kan anses som en reell svakhet i forhold til et produksjonssystem:
+### CRDT types
 
-- **Delta-state CRDTs.** Gossip-protokollen sender hele tilstanden i hver runde. Det er båndbreddesløsende, men illustrerer godt at merge er idempotent. En produksjonsversjon ville sendt kun delta siden forrige synkronisering ([Almeida m.fl., 2018](https://arxiv.org/abs/1603.01529)).
-- **Tombstone garbage collection.** Både OR-Set og RGA akkumulerer tombstones uten å fjerne dem. Causal stability ([Bauwens & Boix](https://soft.vub.ac.be/Publications/2020/vub-soft-tr-20-04.pdf)) lar tombstones trygt fjernes når alle replikaer har sett dem.
-- **Persistens.** All tilstand holdes i minnet og forsvinner når noden avsluttes. En reell node trenger skriving til disk og recovery ved  
-oppstart.
-- **Anti-entropi med Merkle-trær.** Periodisk full-state-gossip er enkelt, men skalerer dårlig. Et Merkle-tre-basert sammenligningsskjema ville la noder identifisere forskjeller i `O(log n)` istedenfor `O(n)`.
-- **Autentisering og kryptering.** Demoapplikasjonen stoler blindt på innkommende koblinger. En reell distribusjon trenger TLS og en form for identitetsbasert autentisering.
-- **RGA-ytelse.** Min implementasjon re-sorterer hele node-listen ved hver innsetting (blir `O(n log n))` per operasjon. Produksjonsbiblioteker som Yjs og Automerge bruker B-tre-baserte interne strukturer for `O(log n)`.
-- **Flere CRDT-typer.** MV-Register (Multi-Value Register), 2P-Set, og causal trees er kjente varianter som dette prosjektet ikke implementerer, men som kunne vært kult.
+| Type             | Module                     | Description                                                        |
+| ---------------- | -------------------------- | ------------------------------------------------------------------ |
+| **G-Counter**    | `counter::GCounter`        | Grow-only counter with per-replica counts and element-wise max merge. |
+| **PN-Counter**   | `counter::PNCounter`       | Positive-negative counter built from two G-Counters.               |
+| **LWW-Register** | `register::LwwRegister<T>` | Last-writer-wins register using Lamport timestamps.                |
+| **OR-Set**       | `set::OrSet<T>`            | Observed-Remove Set with add-wins semantics.                       |
+| **RGA**          | `text::Rga`                | Replicated Growable Array — a text CRDT with stable position IDs.  |
 
----
+### Supporting components
 
-## Eksterne avhengigheter
+- **`clock::LamportClock`** and `clock::LamportTimestamp` — logical clocks with total ordering via `(counter, replica_id)` tie-breaking.
+- **`Crdt` trait** — a common interface for all state-based CRDTs.
 
-Alle CRDT-algoritmene er skrevet fra grunnen av. Avhengighetene som listes nedenfor leverer kun infrastruktur (serialisering,  
-async I/O, testing, logging). 
+### Demo application
 
-### Kjørende avhengigheter
+- Peer-to-peer nodes synchronizing a shared `OrSet<String>` (shopping list).
+- Async architecture using `tokio` with three concurrent tasks per node: incoming TCP listener, periodic gossip loop, and an interactive stdin REPL.
+- Length-prefixed wire protocol with `bincode` serialization.
+- Resilient to disconnection: nodes can be started, stopped, and restarted without affecting convergence.
 
+### Verification
 
-| Avhengighet                      | Brukt til                                                    |
-| -------------------------------- | ------------------------------------------------------------ |
-| `serde`                          | Avledet serialiserings-trait for alle CRDT-typer.            |
-| `bincode`                        | Kompakt binærserialisering i wire-protokollen.               |
-| `tokio`                          | Asynkron runtime for peer-to-peer-noden (TCP, timer, stdin). |
-| `tracing` + `tracing-subscriber` | Strukturert logging i demoapplikasjonen.                     |
-| `clap`                           | Kommandolinjeparser for demoapplikasjonens argumenter.       |
-| `anyhow`                         | Ergonomisk feilhåndtering på applikasjonsnivå.               |
-
-
-### Test-avhengigheter
-
-
-| Avhengighet  | Brukt til                                                                                       |
-| ------------ | ----------------------------------------------------------------------------------------------- |
-| `proptest`   | Property-based testing for å verifisere CRDT-lovene over tusenvis av genererte input-tilfeller. |
-| `serde_json` | Lesbar serialisering i utvalgte tester.                                                         |
-
+- **64 unit tests** covering normal use and edge cases.
+- **19 property tests** verifying commutativity, associativity, and idempotence for each CRDT type, plus strong convergence. Each property runs against 256 randomly generated cases per `cargo test` invocation.
+- **Strict CI**: tested on Linux, macOS, and Windows; `clippy` with `pedantic + nursery`; `cargo fmt --check`; rustdoc with `-D warnings`; `unsafe_code = "forbid"` across the whole workspace.
 
 ---
 
-## Installasjon
+## Future work
 
-### Forutsetninger
+The following are intentionally omitted. Each can be considered a real weakness relative to a production system:
 
-- **Rust 1.75 eller nyere.** Installer via [rustup](https://rustup.rs).
-- Et Unix-lignende terminalmiljø anbefales for demoen, men prosjektet bygger og kjører også på Windows.
+- **Delta-state CRDTs.** The gossip protocol sends the full state every round. This illustrates that merge is idempotent, but wastes bandwidth. A production version would send only the delta since the last sync ([Almeida et al., 2018](https://arxiv.org/abs/1603.01529)).
+- **Tombstone garbage collection.** Both OR-Set and RGA accumulate tombstones indefinitely. Causal stability ([Bauwens & Boix](https://soft.vub.ac.be/Publications/2020/vub-soft-tr-20-04.pdf)) allows tombstones to be safely removed once all replicas have seen them.
+- **Persistence.** All state is in-memory and lost when the node exits. A real node needs disk writes and recovery on startup.
+- **Anti-entropy with Merkle trees.** Full-state gossip is simple but doesn't scale. A Merkle-tree-based comparison scheme would let nodes identify differences in `O(log n)` rather than `O(n)`.
+- **Authentication and encryption.** The demo trusts all incoming connections blindly. A real deployment needs TLS and identity-based authentication.
+- **RGA performance.** The implementation re-sorts the full node list on each insertion (`O(n log n)` per operation). Production libraries like Yjs and Automerge use B-tree-based internal structures for `O(log n)`.
+- **More CRDT types.** MV-Register, 2P-Set, and causal trees are well-known variants not covered here.
 
-### Bygg
+---
+
+## External dependencies
+
+All CRDT algorithms are written from scratch. The dependencies below provide infrastructure only (serialization, async I/O, testing, logging).
+
+### Runtime dependencies
+
+| Dependency                       | Used for                                                       |
+| -------------------------------- | -------------------------------------------------------------- |
+| `serde`                          | Derived serialization traits for all CRDT types.               |
+| `bincode`                        | Compact binary serialization in the wire protocol.             |
+| `tokio`                          | Async runtime for the peer-to-peer node (TCP, timers, stdin).  |
+| `tracing` + `tracing-subscriber` | Structured logging in the demo application.                    |
+| `clap`                           | CLI argument parsing for the demo application.                 |
+| `anyhow`                         | Ergonomic error handling at the application level.             |
+
+### Test dependencies
+
+| Dependency   | Used for                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| `proptest`   | Property-based testing to verify CRDT laws over thousands of generated input cases.        |
+| `serde_json` | Human-readable serialization in selected tests.                                            |
+
+---
+
+## Installation
+
+### Prerequisites
+
+- **Rust 1.75 or later.** Install via [rustup](https://rustup.rs).
+- A Unix-like terminal is recommended for the demo, but the project builds and runs on Windows too.
+
+### Build
 
 ```bash
 git clone https://github.com/shizaahmad27/crusty-crdt.git
@@ -117,22 +109,20 @@ cd crusty-crdt
 cargo build --release
 ```
 
-Første bygg laster ned alle avhengigheter og tar 2–3 minutter. Påfølgende bygg skal være raske.
-
 ---
 
-## Bruk
+## Usage
 
-### Som bibliotek
+### As a library
 
-Legg til i din egen `Cargo.toml`:
+Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 crdt-lib = { path = "../crusty-crdt/crdt-lib" }
 ```
 
-Et fullstendig eksempel:
+A complete example:
 
 ```rust
 use crdt_lib::counter::GCounter;
@@ -141,22 +131,22 @@ use crdt_lib::Crdt;
 let mut a = GCounter::new();
 let mut b = GCounter::new();
 
-a.increment(1, 3);  // replika 1 inkrementerer 3 ganger
-b.increment(2, 5);  // replika 2 inkrementerer 5 ganger
+a.increment(1, 3);  // replica 1 increments by 3
+b.increment(2, 5);  // replica 2 increments by 5
 
-// Replikaer slår sammen tilstanden
+// Replicas merge state
 a.merge(&b);
 b.merge(&a);
 
 assert_eq!(a.value(), 8);
-assert_eq!(a, b);  // konvergens
+assert_eq!(a, b);  // convergence
 ```
 
-For mer avansert bruk, se API-dokumentasjonen.
+For more advanced usage, see the API documentation.
 
-### Som demoapplikasjon
+### As a demo application
 
-Start tre noder i hver sin terminal:
+Start three nodes in separate terminals:
 
 ```bash
 # Terminal 1
@@ -172,47 +162,45 @@ cargo run --release --bin crdt-demo -- \
   --id 3 --port 7003 --peers 127.0.0.1:7001,127.0.0.1:7002
 ```
 
-Tilgjengelige kommandoer per node:
+Available commands per node:
 
+| Command                          | Effect                                    |
+| -------------------------------- | ----------------------------------------- |
+| `add <item>`                     | Adds an item to the shared shopping list. |
+| `remove <item>` *(or `rm`)*      | Removes an item.                          |
+| `list` *(or `ls`)*               | Shows the current visible items.          |
+| `quit` *(or `exit`)*             | Exits the node.                           |
 
-| Kommando                          | Effekt                                          |
-| --------------------------------- | ----------------------------------------------- |
-| `add <element>`                   | Legger til et element i den delte handlelisten. |
-| `remove <element>` *(eller `rm`)* | Fjerner et element.                             |
-| `list` *(eller `ls`)*             | Viser nåværende synlige elementer.              |
-| `quit` *(eller `exit`)*           | Avslutter noden.                                |
-
-
-Endringer propagerer automatisk hvert 2. sekund (justerbart med`--gossip-ms`). Noder kan trygt frakobles og kobles til igjen. Tilstanden konvergerer når kommunikasjonen er gjenopprettet.
+Changes propagate automatically every 2 seconds (adjustable with `--gossip-ms`). Nodes can be safely disconnected and reconnected; state converges once communication is restored.
 
 ---
 
-## Kjøring av tester
+## Running tests
 
 ```bash
-# Alle tester i hele workspacet
+# All tests in the entire workspace
 cargo test --workspace
 
-# Bare enhetstestene i biblioteket
+# Unit tests only
 cargo test -p crdt-lib --lib
 
-# Bare property-testene (tar lengre tid)
+# Property tests only
 cargo test -p crdt-lib --test properties
 
-# Med ekstra antall property-cases (krever miljøvariabel)
+# With a higher property case count
 PROPTEST_CASES=2048 cargo test -p crdt-lib --test properties
 ```
 
-### Linting og formatering
+### Linting and formatting
 
 ```bash
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-### Doc-tester
+### Doc tests
 
-Alle eksempelblokker i doc-kommentarer kjøres som tester:
+All code blocks in doc comments are run as tests:
 
 ```bash
 cargo test --workspace --doc
@@ -220,11 +208,11 @@ cargo test --workspace --doc
 
 ---
 
-## API-dokumentasjon
+## API documentation
 
-Publisert versjon: [https://shizaahmad27.github.io/crusty-crdt/](https://shizaahmad27.github.io/crusty-crdt/) (oppdateres automatisk av CI ved push til `main`)
+Published: [https://shizaahmad27.github.io/crusty-crdt/](https://shizaahmad27.github.io/crusty-crdt/) (updated automatically by CI on push to `main`)
 
-Generer og åpne lokalt:
+Generate and open locally:
 
 ```bash
 cargo doc --workspace --no-deps --open
@@ -232,61 +220,61 @@ cargo doc --workspace --no-deps --open
 
 ---
 
-## Prosjektstruktur
+## Project structure
 
 ```
 crusty-crdt/
-├── Cargo.toml              workspace-konfigurasjon, lints
+├── Cargo.toml              workspace configuration, lints
 ├── README.md
 ├── LICENSE                 MIT
 ├── rustfmt.toml
-├── .github/workflows/ci.yml  test/clippy/fmt/docs på 3 OS
-├── crdt-lib/               selve CRDT-biblioteket
+├── .github/workflows/ci.yml  test/clippy/fmt/docs on 3 OSes
+├── crdt-lib/               the CRDT library
 │   ├── Cargo.toml
 │   ├── src/
-│   │   ├── lib.rs          Crdt-trait, ReplicaId, modul-eksport
-│   │   ├── clock.rs        Lamport-klokke
+│   │   ├── lib.rs          Crdt trait, ReplicaId, module exports
+│   │   ├── clock.rs        Lamport clock
 │   │   ├── counter.rs      G-Counter, PN-Counter
 │   │   ├── register.rs     LWW-Register
 │   │   ├── set.rs          OR-Set
-│   │   └── text.rs         RGA tekst-CRDT
+│   │   └── text.rs         RGA text CRDT
 │   └── tests/
-│       └── properties.rs   property-baserte verifikasjoner
-└── crdt-demo/              peer-to-peer demoapplikasjon
+│       └── properties.rs   property-based verifications
+└── crdt-demo/              peer-to-peer demo application
     ├── Cargo.toml
     └── src/
-        ├── main.rs         argument-parsing og REPL
-        ├── node.rs         tilstand, gossip-løkke, peer-håndtering
-        └── protocol.rs     wire-protokoll og serialisering
+        ├── main.rs         argument parsing and REPL
+        ├── node.rs         state, gossip loop, peer handling
+        └── protocol.rs     wire protocol and serialization
 ```
 
 ---
 
-## Eksterne kilder
+## References
 
-Følgende kilder har vært sentrale i utformingen av løsningen. Ingen kode er kopiert fra dem; algoritmene er reimplementert basert på publiserte beskrivelser.
+No code was copied from any of the following sources; algorithms were reimplemented from published descriptions.
 
-### Fagartikler
+### Papers
 
 - Shapiro, M., Preguiça, N., Baquero, C., & Zawirski, M. (2011). *A comprehensive study of Convergent and Commutative Replicated Data Types*. INRIA Research Report 7506. [https://hal.inria.fr/inria-00555588](https://hal.inria.fr/inria-00555588)
 - Roh, H., Jeon, M., Kim, J., & Lee, J. (2011). *Replicated abstract data types: Building blocks for collaborative applications*. Journal of Parallel and Distributed Computing, 71(3).
 - Lamport, L. (1978). *Time, Clocks, and the Ordering of Events in a Distributed System*. Communications of the ACM, 21(7).
 
-### Foredrag og blogger
+### Talks and blogs
 
 - Kleppmann, M. (2020). *CRDTs: The Hard Parts*. Hydra Conference.
 [https://www.youtube.com/watch?v=x7drE24geUw](https://www.youtube.com/watch?v=x7drE24geUw)
 - Sypytkowski, B. *An Introduction to State-based CRDTs*. Blog series.
 [https://bartoszsypytkowski.com/the-state-of-a-state-based-crdts/](https://bartoszsypytkowski.com/the-state-of-a-state-based-crdts/)
 
-### Verktøy og dokumentasjon
+### Tools and documentation
 
-- [The Rust Programming Language](https://doc.rust-lang.org/book/) for generelle Rust-spørsmål.
-- [Tokio Tutorial](https://tokio.rs/tokio/tutorial) for async-mønstre i demoapplikasjonen.
-- [proptest documentation](https://docs.rs/proptest) for property-testing.
+- [The Rust Programming Language](https://doc.rust-lang.org/book/)
+- [Tokio Tutorial](https://tokio.rs/tokio/tutorial)
+- [proptest documentation](https://docs.rs/proptest)
 
 ---
 
-## Lisens
+## License
 
-MIT — se [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).

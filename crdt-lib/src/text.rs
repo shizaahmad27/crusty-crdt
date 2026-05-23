@@ -1,34 +1,33 @@
-//! Tekst-CRDT-er: Replicated Growable Array (RGA).
+//! Text CRDTs: Replicated Growable Array (RGA).
 //!
-//! RGA er en sekvens-CRDT som tillater samtidig redigering av en delt streng
-//! eller liste. Hvert tegn har en uforanderlig identitet (her: et
-//! [`LamportTimestamp`]), og innsetting skjer "etter en gitt ID" snarere enn
-//! "på en gitt indeks". Dette gjør at samtidige innsettinger fra forskjellige
-//! replikaer kan flettes deterministisk.
+//! RGA is a sequence CRDT that supports concurrent editing of a shared string
+//! or list. Each character has an immutable identity (a [`LamportTimestamp`]),
+//! and insertion is expressed as "after a given ID" rather than "at a given
+//! index". This lets concurrent insertions from different replicas be merged
+//! deterministically.
 //!
-//! # Algoritme
+//! # Algorithm
 //!
-//! Hvert tegn lagres som en `Node` med:
-//! - en unik `id` (vår Lamport-stempel),
-//! - en `parent` som er `IDen` til tegnet det ble satt inn etter (`None` for det
-//!   første tegnet),
-//! - selve `value` (her: `char`),
-//! - et `deleted`-flagg (tombstone).
+//! Each character is stored as a `Node` with:
+//! - a unique `id` (a Lamport timestamp),
+//! - a `parent` — the `id` of the character it was inserted after (`None` for
+//!   the first character),
+//! - the `value` (`char`),
+//! - a `deleted` tombstone flag.
 //!
-//! Den interne representasjonen er en `Vec<Node>` sortert etter RGA-regelen:
+//! The internal `Vec<Node>` is sorted by the RGA rule:
+//! 1. A character always comes after its parent.
+//! 2. Siblings (same parent) are sorted by ID in *descending* order — newer
+//!    IDs come first.
 //!
-//! 1. Et tegn kommer alltid etter sin forelder.
-//! 2. Søsken (samme forelder) sorteres etter ID i *synkende* rekkefølge —
-//!    nyere ID kommer først.
-//!
-//! Merge er union av nodemengden; etter merge sorteres listen på nytt.
+//! Merge is the union of the node sets, followed by re-sorting.
 
 use serde::{Deserialize, Serialize};
 
 use crate::clock::LamportTimestamp;
 use crate::Crdt;
 
-/// Én node i RGA-strukturen.
+/// One node in the RGA structure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Node {
     id: LamportTimestamp,
@@ -37,12 +36,12 @@ struct Node {
     deleted: bool,
 }
 
-/// En Replicated Growable Array for tekst.
+/// A Replicated Growable Array for text.
 ///
-/// Støtter samtidig innsetting og sletting på tvers av replikaer med
-/// deterministisk konvergens.
+/// Supports concurrent insertion and deletion across replicas with
+/// deterministic convergence.
 ///
-/// # Eksempel
+/// # Example
 ///
 /// ```
 /// use crdt_lib::clock::LamportClock;
@@ -52,7 +51,7 @@ struct Node {
 /// let mut clock_a = LamportClock::new(1);
 /// let mut clock_b = LamportClock::new(2);
 ///
-/// // Begge starter fra tom tekst og setter inn 'A' og 'B' samtidig
+/// // Both replicas start from an empty document and insert concurrently.
 /// let mut a = Rga::new();
 /// let mut b = Rga::new();
 ///
@@ -62,7 +61,7 @@ struct Node {
 /// a.merge(&b);
 /// b.merge(&a);
 ///
-/// // Begge konvergerer til samme streng (rekkefølge er deterministisk)
+/// // Both converge to the same string (order is deterministic).
 /// assert_eq!(a.to_string(), b.to_string());
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,16 +70,16 @@ pub struct Rga {
 }
 
 impl Rga {
-    /// Lager en tom RGA.
+    /// Creates an empty RGA.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Setter inn `value` rett etter noden med ID `parent`. Hvis `parent` er
-    /// `None`, settes tegnet inn først i listen.
+    /// Inserts `value` immediately after the node with the given `parent` ID.
+    /// If `parent` is `None`, the character is inserted at the beginning.
     ///
-    /// `id` må være globalt unik — typisk fra en lokal `LamportClock::tick`.
+    /// `id` must be globally unique — typically from a local `LamportClock::tick`.
     pub fn insert_after(
         &mut self,
         parent: Option<LamportTimestamp>,
@@ -97,17 +96,16 @@ impl Rga {
         self.sort_nodes();
     }
 
-    /// Markerer noden med gitt ID som slettet (tombstone). Hvis `IDen` ikke
-    /// finnes, er det en no-op.
+    /// Marks the node with the given ID as deleted (tombstone). No-op if not found.
     pub fn delete(&mut self, id: LamportTimestamp) {
         if let Some(node) = self.nodes.iter_mut().find(|n| n.id == id) {
             node.deleted = true;
         }
     }
 
-    /// Returnerer `IDen` til den synlige noden på posisjon `index` i den
-    /// renderte teksten. Brukes for å konvertere "brukerens posisjon" til en
-    /// stabil ID som kan settes inn etter.
+    /// Returns the ID of the visible node at `index` in the rendered text.
+    ///
+    /// Use this to convert a user-facing position into a stable ID for insertion.
     #[must_use]
     pub fn id_at_visible_index(&self, index: usize) -> Option<LamportTimestamp> {
         self.nodes
@@ -117,20 +115,19 @@ impl Rga {
             .map(|n| n.id)
     }
 
-    /// Returnerer antall synlige tegn (eksklusive tombstones).
+    /// Returns the number of visible characters (excluding tombstones).
     #[must_use]
     pub fn len(&self) -> usize {
         self.nodes.iter().filter(|n| !n.deleted).count()
     }
 
-    /// Returnerer `true` hvis det ikke finnes noen synlige tegn.
+    /// Returns `true` if there are no visible characters.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.nodes.iter().all(|n| n.deleted)
     }
 
-    /// Renderer teksten ved å lese ut alle ikke-tombstonede noder i sortert
-    /// rekkefølge.
+    /// Renders the text by collecting all non-tombstoned nodes in sorted order.
     #[must_use]
     #[allow(clippy::inherent_to_string)]
     pub fn to_string(&self) -> String {
@@ -141,25 +138,21 @@ impl Rga {
             .collect()
     }
 
-    /// Sorterer den interne node-listen etter RGA-ordningen.
+    /// Sorts the internal node list into RGA order.
     ///
-    /// Dette er kjernen i algoritmen. Vi bygger en topologisk-sortert
-    /// rekkefølge der barn-noder kommer etter sin forelder, og søsken
-    /// (samme forelder) sorteres etter ID i synkende rekkefølge.
+    /// Builds a map from parent ID to children, sorts each sibling group by ID
+    /// descending, then traverses recursively to produce a topologically sorted
+    /// output where every node follows its parent.
     fn sort_nodes(&mut self) {
-        // Bygg en map fra forelder-ID til mengden av barn (sortert).
-        // Vi gjør dette ved en enkel rekursiv tilnærming: traversér fra roten,
-        // og ved hver node, plukk ut barna sortert etter ID synkende.
         let original = std::mem::take(&mut self.nodes);
 
-        // Indeksér nodene etter ID for raskt oppslag.
         let by_parent: std::collections::BTreeMap<Option<LamportTimestamp>, Vec<Node>> = {
             let mut map: std::collections::BTreeMap<_, Vec<Node>> =
                 std::collections::BTreeMap::new();
             for node in original {
                 map.entry(node.parent).or_default().push(node);
             }
-            // Sorter barn under hver forelder etter ID synkende.
+            // Sort siblings by ID descending so newer insertions appear first.
             for children in map.values_mut() {
                 children.sort_by_key(|b| std::cmp::Reverse(b.id));
             }
@@ -171,8 +164,7 @@ impl Rga {
         self.nodes = result;
     }
 
-    /// Rekursiv hjelper: traverserer "etter denne forelderen, så hennes barn,
-    /// så deres barn", som er nøyaktig RGA-rekkefølgen.
+    /// Recursively appends nodes in RGA order: each node followed by its children.
     fn append_in_order(
         by_parent: &std::collections::BTreeMap<Option<LamportTimestamp>, Vec<Node>>,
         parent: Option<LamportTimestamp>,
@@ -190,9 +182,8 @@ impl Rga {
 
 impl Crdt for Rga {
     fn merge(&mut self, other: &Self) {
-        // Union: legg til alle noder fra `other` som vi ikke allerede har, og
-        // for noder vi har, oppdater `deleted`-flagget til OR-en av begge.
-        // Dette bevarer monotonisitet: en sletting kan ikke "angres".
+        // Union: add nodes from `other` we don't have, and for shared nodes OR
+        // the deleted flags so deletions are never undone.
         use std::collections::BTreeMap;
 
         let mut by_id: BTreeMap<LamportTimestamp, Node> =
@@ -262,24 +253,20 @@ mod tests {
 
     #[test]
     fn concurrent_inserts_at_same_position_converge() {
-        // Begge replikaer setter inn et tegn etter samme forelder samtidig.
-        // RGA-regelen sier: høyere ID vinner posisjonen først.
+        // Both replicas insert after the same parent; higher ID wins the position.
         let mut clock1 = LamportClock::new(1);
         let mut clock2 = LamportClock::new(2);
 
-        // Felles utgangspunkt: tegnet 'H' med id fra replika 1.
         let h_id = LamportTimestamp::new(1, 1);
 
         let mut a = Rga::new();
         a.insert_after(None, 'H', h_id);
         let mut b = a.clone();
 
-        // Replika 1 setter inn 'A' etter H
         clock1.observe(1);
         let a_id = clock1.tick();
         a.insert_after(Some(h_id), 'A', a_id);
 
-        // Replika 2 setter inn 'B' etter H samtidig
         clock2.observe(1);
         let b_id = clock2.tick();
         b.insert_after(Some(h_id), 'B', b_id);
@@ -287,11 +274,8 @@ mod tests {
         a.merge(&b);
         b.merge(&a);
 
-        // Begge skal nå ha samme streng (konvergens)
         assert_eq!(a.to_string(), b.to_string());
-        // Lengden er 3 (H + de to nye tegnene)
         assert_eq!(a.len(), 3);
-        // Førstebokstav skal være 'H'
         assert!(a.to_string().starts_with('H'));
     }
 
@@ -311,7 +295,7 @@ mod tests {
 
     #[test]
     fn merge_preserves_deletes() {
-        // Hvis én replika har slettet et tegn, skal mergen bevare slettingen.
+        // A deletion on one replica must be preserved after merging.
         let mut clock = LamportClock::new(1);
         let h = clock.tick();
 
@@ -336,7 +320,7 @@ mod tests {
         r.insert_after(Some(b), 'C', c);
 
         r.delete(b);
-        // Synlig tekst: "AC". Indeks 1 skal nå være C, ikke B.
+        // Visible text: "AC". Index 1 should now be C, not B.
         assert_eq!(r.id_at_visible_index(1), Some(c));
     }
 }

@@ -1,9 +1,9 @@
-//! Wire-protokoll for peer-to-peer-noder.
+//! Wire protocol for peer-to-peer nodes.
 //!
-//! Hver melding sendes som `[u32 lengde i big-endian][bincode-payload]`. Dette
-//! gjør at mottakeren kan lese én melding av gangen uten å gjette hvor den
-//! slutter. `bincode` er valgt fordi det er kompakt og fungerer rett ut av
-//! boksen med `serde`-deriverte typer.
+//! Each message is sent as `[u32 length in big-endian][bincode payload]`. This
+//! lets the receiver read one complete message at a time without guessing where
+//! it ends. `bincode` is used because it is compact and works out of the box
+//! with `serde`-derived types.
 
 use std::io;
 
@@ -11,18 +11,18 @@ use crdt_lib::set::OrSet;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-/// Meldingstyper som utveksles mellom noder.
+/// Message types exchanged between nodes.
 ///
-/// I dette demoet sender vi hele tilstanden ved hver gossip-runde. Dette er
-/// idempotent (merge tåler å se samme tilstand mange ganger) men ikke
-/// båndbreddeoptimalt. En produksjonsversjon ville brukt delta-state CRDTs.
+/// The demo sends the full state on every gossip round. This is idempotent
+/// (merge handles seeing the same state multiple times) but not
+/// bandwidth-efficient. A production version would use delta-state CRDTs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Message {
-    /// Full tilstand for den delte handlelisten.
+    /// Full state of the shared shopping list.
     State(OrSet<String>),
 }
 
-/// Skriver én melding til en strøm med 4-bytes lengdeprefiks.
+/// Writes one message to a stream with a 4-byte length prefix.
 pub async fn write_message<W>(stream: &mut W, message: &Message) -> io::Result<()>
 where
     W: AsyncWriteExt + Unpin,
@@ -37,7 +37,7 @@ where
     Ok(())
 }
 
-/// Leser én melding fra en strøm. Returnerer `Ok(None)` ved EOF.
+/// Reads one message from a stream. Returns `Ok(None)` on EOF.
 pub async fn read_message<R>(stream: &mut R) -> io::Result<Option<Message>>
 where
     R: AsyncReadExt + Unpin,

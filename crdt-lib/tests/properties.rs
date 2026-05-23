@@ -1,13 +1,12 @@
-//! Property-based tester som verifiserer CRDT-lovene for alle implementerte typer.
+//! Property-based tests verifying the CRDT laws for all implemented types.
 //!
-//! En state-based CRDT må ha en `merge`-operasjon som er:
-//! - **Kommutativ:** `merge(a, b) == merge(b, a)`
-//! - **Assosiativ:** `merge(merge(a, b), c) == merge(a, merge(b, c))`
+//! A state-based CRDT's `merge` must be:
+//! - **Commutative:** `merge(a, b) == merge(b, a)`
+//! - **Associative:** `merge(merge(a, b), c) == merge(a, merge(b, c))`
 //! - **Idempotent:** `merge(a, a) == a`
 //!
-//! Disse testene genererer tusenvis av tilfeldige tilstander og verifiserer at
-//! lovene holder for hver eneste én. Dette er sterkere enn håndskrevne
-//! enhetstester fordi det utforsker corner cases vi ikke ville tenkt på.
+//! These tests generate thousands of random states and verify the laws for each
+//! one, covering edge cases that hand-written unit tests would miss.
 
 use crdt_lib::clock::LamportTimestamp;
 use crdt_lib::counter::{GCounter, PNCounter};
@@ -18,11 +17,10 @@ use crdt_lib::Crdt;
 use proptest::prelude::*;
 
 // ---------------------------------------------------------------------------
-// Strategi-helpere: hvordan generere tilfeldige instanser av hver CRDT-type.
+// Strategy helpers: how to generate random instances of each CRDT type.
 // ---------------------------------------------------------------------------
 
-/// Genererer en tilfeldig G-Counter ved å bruke et lite antall replikaer og
-/// inkrementer. Små verdier holder testene raske.
+/// Generates a random G-Counter using a small number of replicas and increments.
 fn arb_gcounter() -> impl Strategy<Value = GCounter> {
     prop::collection::vec((0u64..5, 0u64..100), 0..10).prop_map(|ops| {
         let mut c = GCounter::new();
@@ -33,15 +31,14 @@ fn arb_gcounter() -> impl Strategy<Value = GCounter> {
     })
 }
 
-/// En operasjon på et OR-Set, brukt for å generere tilfeldige tilstander.
+/// An operation on an OR-Set, used to generate random states.
 #[derive(Debug, Clone)]
 enum SetOp {
     Add(u8, LamportTimestamp),
     Remove(u8),
 }
 
-/// Genererer en tilfeldig sekvens av set-operasjoner over et lite univers
-/// (u8-verdier 0..10) med Lamport-tagger.
+/// Generates a random sequence of set operations over a small value universe (u8 0..10).
 fn arb_set_ops() -> impl Strategy<Value = Vec<SetOp>> {
     let op = prop_oneof![
         (0u8..10, 0u64..50, 0u64..5)
@@ -51,7 +48,7 @@ fn arb_set_ops() -> impl Strategy<Value = Vec<SetOp>> {
     prop::collection::vec(op, 0..20)
 }
 
-/// Bygger et OR-Set ved å spille av en operasjonssekvens.
+/// Builds an OR-Set by replaying a sequence of operations.
 fn build_orset(ops: &[SetOp]) -> OrSet<u8> {
     let mut s = OrSet::new();
     for op in ops {
@@ -63,10 +60,9 @@ fn build_orset(ops: &[SetOp]) -> OrSet<u8> {
     s
 }
 
-/// Genererer et tilfeldig LWW-Register over små heltallsverdier. Vi bruker
-/// `i32` som verditype og lar tidsstempelet variere fritt; det viktigste er at
-/// strategien dekker både tomme registre og registre med samtidige skrivinger
-/// (samme counter, ulik replika).
+/// Generates a random LWW-Register over small integer values. Covers both
+/// empty registers and registers with concurrent writes (same counter,
+/// different replicas).
 fn arb_lww() -> impl Strategy<Value = LwwRegister<i32>> {
     prop::option::of((0i32..100, 0u64..20, 0u64..5)).prop_map(|opt| {
         let mut r = LwwRegister::new();
@@ -77,7 +73,7 @@ fn arb_lww() -> impl Strategy<Value = LwwRegister<i32>> {
     })
 }
 
-/// Genererer en tilfeldig PN-Counter med både inkrementer og dekrementer.
+/// Generates a random PN-Counter with both increments and decrements.
 fn arb_pncounter() -> impl Strategy<Value = PNCounter> {
     prop::collection::vec((0u64..5, any::<bool>(), 0u64..100), 0..10).prop_map(|ops| {
         let mut c = PNCounter::new();
@@ -97,7 +93,7 @@ fn arb_pncounter() -> impl Strategy<Value = PNCounter> {
 // ---------------------------------------------------------------------------
 
 proptest! {
-    /// Kommutativitet: `merge(a, b) == merge(b, a)`.
+    /// Commutativity: `merge(a, b) == merge(b, a)`.
     #[test]
     fn gcounter_merge_is_commutative(a in arb_gcounter(), b in arb_gcounter()) {
         let mut ab = a.clone();
@@ -109,7 +105,7 @@ proptest! {
         prop_assert_eq!(ab, ba);
     }
 
-    /// Assosiativitet: `merge(merge(a, b), c) == merge(a, merge(b, c))`.
+    /// Associativity: `merge(merge(a, b), c) == merge(a, merge(b, c))`.
     #[test]
     fn gcounter_merge_is_associative(
         a in arb_gcounter(),
@@ -128,7 +124,7 @@ proptest! {
         prop_assert_eq!(left, right);
     }
 
-    /// Idempotens: `merge(a, a) == a`.
+    /// Idempotence: `merge(a, a) == a`.
     #[test]
     fn gcounter_merge_is_idempotent(a in arb_gcounter()) {
         let mut merged = a.clone();
@@ -136,8 +132,7 @@ proptest! {
         prop_assert_eq!(merged, a);
     }
 
-    /// Verdien skal vokse monotont under merge: merging kan aldri minke verdien.
-    /// Dette er en avledet konsekvens av at G-Counter danner en lattice.
+    /// Monotonicity: merging can never decrease the value.
     #[test]
     fn gcounter_merge_is_monotonic(a in arb_gcounter(), b in arb_gcounter()) {
         let before = a.value();
@@ -230,8 +225,7 @@ proptest! {
         prop_assert_eq!(merged, a);
     }
 
-    /// Konsekvens av total ordning: etter merge skal begge sider ha det samme
-    /// tidsstempelet (eller begge være tomme).
+    /// After merging, both sides must agree on the maximum timestamp.
     #[test]
     fn lww_merge_converges_to_max_timestamp(a in arb_lww(), b in arb_lww()) {
         let mut merged = a.clone();
@@ -291,17 +285,15 @@ proptest! {
         prop_assert_eq!(merged, a);
     }
 
-    /// Sterk konvergens: hvis to replikaer har sett nøyaktig samme
-    /// operasjoner (i hvilken som helst rekkefølge), skal innholdet være
-    /// identisk. Dette er den faktiske CRDT-garantien for brukere.
+    /// Strong convergence: replicas that have seen the same operations must
+    /// have identical contents — the core guarantee CRDTs provide to users.
     #[test]
     fn orset_converges_when_both_see_same_ops(ops in arb_set_ops()) {
         let a = build_orset(&ops);
 
-        // Bygg b ved å spille av samme operasjoner i omvendt rekkefølge.
-        // For OR-Set er rekkefølgen ikke ekvivalent i alle tilfeller fordi
-        // remove avhenger av hvilke tags som er observert, så vi merger i
-        // stedet operasjon-for-operasjon.
+        // Build b by replaying the same operations in reverse order. For OR-Set,
+        // order is not always equivalent (remove depends on observed tags), so
+        // we merge operation-by-operation instead.
         let mut b = OrSet::new();
         for op in ops.iter().rev() {
             match op {
@@ -310,7 +302,6 @@ proptest! {
             }
         }
 
-        // Etter at begge har merget med hverandre, må de være like.
         let mut a_merged = a.clone();
         a_merged.merge(&b);
         let mut b_merged = b.clone();
@@ -324,9 +315,8 @@ proptest! {
 // RGA properties
 // ---------------------------------------------------------------------------
 
-/// Bygger en tilfeldig RGA ved å sette inn tegn på tilfeldige posisjoner.
-/// Vi bruker en monotont voksende counter for ID-er for å sikre unikhet på
-/// tvers av kall i samme test.
+/// Builds a random RGA by inserting characters at random positions.
+/// Uses a monotonically increasing counter to guarantee unique IDs.
 fn arb_rga() -> impl Strategy<Value = Rga> {
     prop::collection::vec((any::<char>(), 0u64..10, 0u64..3), 0..15).prop_map(|ops| {
         let mut r = Rga::new();
@@ -384,8 +374,7 @@ proptest! {
         prop_assert_eq!(merged, a);
     }
 
-    /// Konvergens på rendret tekst: etter merge i begge retninger må strengene
-    /// være identiske. Dette er den faktiske garantien til en bruker.
+    /// Rendered text must be identical after merging in both directions.
     #[test]
     fn rga_renders_consistently_after_merge(a in arb_rga(), b in arb_rga()) {
         let mut ab = a.clone();

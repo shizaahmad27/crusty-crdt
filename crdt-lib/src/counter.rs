@@ -1,8 +1,8 @@
-//! Counter-CRDT-er: G-Counter og PN-Counter.
+//! Counter CRDTs: G-Counter and PN-Counter.
 //!
-//! Counters er det enkleste pedagogiske eksempelet på en CRDT, og illustrerer
-//! kjerneideen bak state-based CRDTs: hver replika holder et *per-replika*
-//! bidrag som vokser monotont, og merge er en *join*-operasjon i en lattice.
+//! Counters illustrate the core idea of state-based CRDTs: each replica holds
+//! its own per-replica contribution that grows monotonically, and merge is a
+//! join operation on a lattice.
 
 use std::collections::BTreeMap;
 
@@ -10,75 +10,45 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Crdt, ReplicaId};
 
-/// En *grow-only counter* — en distribuert teller som bare kan inkrementere.
+/// A grow-only counter — a distributed counter that only supports increment.
 ///
-/// # Konsept
+/// # Concept
 ///
-/// Tilstanden er en map fra `ReplicaId` til hver replikas lokale bidrag.
-/// Hver replika får kun lov til å oppdatere *sin egen* oppføring. Den totale
-/// verdien er summen av alle oppføringene.
+/// State is a map from `ReplicaId` to each replica's local contribution.
+/// Each replica may only update its own entry. The total value is the sum of
+/// all entries. Merge takes the per-replica maximum, so no value ever decreases.
 ///
-/// Når to G-Countere merges, tar vi elementvis maksimum: for hver replika-id
-/// beholder vi den høyeste verdien som er observert. Fordi hver replika bare
-/// øker sin egen teller, kan ingen verdi minke, og elementvis max gir korrekt
-/// konvergens uten å dobbelttelle.
-///
-/// # CRDT-egenskaper
-///
-/// `merge` er:
-/// - **Kommutativ:** `max(a, b) = max(b, a)` per komponent
-/// - **Assosiativ:** `max(max(a, b), c) = max(a, max(b, c))` per komponent
-/// - **Idempotent:** `max(a, a) = a` per komponent
-///
-/// Disse egenskapene bevises maskinmessig av property-tester i
-/// `tests/properties.rs`.
-///
-/// # Eksempel
-///
-/// ```
-/// use crdt_lib::counter::GCounter;
-/// use crdt_lib::Crdt;
-///
-/// let mut a = GCounter::new();
-/// let mut b = GCounter::new();
-///
-/// a.increment(1, 3);
-/// b.increment(2, 5);
-///
-/// a.merge(&b);
-/// assert_eq!(a.value(), 8);
-/// ```
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GCounter {
-    /// Per-replika telling. `BTreeMap` gir deterministisk iterasjonsrekkefølge,
-    /// noe som er nyttig for testing og serialisering.
+    /// Per-replica counts. `BTreeMap` gives deterministic iteration order,
+    /// which helps with testing and serialization.
     counts: BTreeMap<ReplicaId, u64>,
 }
 
 impl GCounter {
-    /// Lager en tom G-Counter med verdi 0.
+    /// Creates an empty G-Counter with value 0.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Inkrementerer denne replikaens egen telling med `amount`.
+    /// Increments this replica's own count by `amount`.
     ///
-    /// Hver replika eier sin egen oppføring; det er en sentral invariant at en
-    /// replika aldri endrer en annen replikas verdi. Dette er det som garanterer
-    /// monotonisitet og dermed konvergens.
+    /// Each replica owns its own entry and must never modify another replica's
+    /// value — this invariant guarantees monotonicity and convergence.
     pub fn increment(&mut self, replica: ReplicaId, amount: u64) {
         let entry = self.counts.entry(replica).or_insert(0);
         *entry = entry.saturating_add(amount);
     }
 
-    /// Returnerer den totale verdien som summen av alle replikaers bidrag.
+    /// Returns the total value as the sum of all replica contributions.
     #[must_use]
     pub fn value(&self) -> u64 {
         self.counts.values().copied().sum()
     }
 
-    /// Returnerer det lokale bidraget til en gitt replika.
+    /// Returns the local contribution of the given replica.
     #[must_use]
     pub fn value_for(&self, replica: ReplicaId) -> u64 {
         self.counts.get(&replica).copied().unwrap_or(0)
@@ -87,9 +57,7 @@ impl GCounter {
 
 impl Crdt for GCounter {
     fn merge(&mut self, other: &Self) {
-        // Elementvis maksimum: for hver replika-id beholder vi den høyeste
-        // observerte verdien. Replikaer som finnes i `other` men ikke i `self`
-        // legges til; replikaer som finnes i begge oppdateres til max.
+        // Per-replica max: keep the highest observed count for each replica ID.
         for (&replica, &other_count) in &other.counts {
             let entry = self.counts.entry(replica).or_insert(0);
             *entry = (*entry).max(other_count);
@@ -97,19 +65,16 @@ impl Crdt for GCounter {
     }
 }
 
-/// En *positive-negative counter* — en distribuert teller som støtter både
-/// inkrement og dekrement.
+/// A positive-negative counter — supports both increment and decrement.
 ///
-/// # Konsept
+/// # Concept
 ///
-/// Et dekrement kan ikke representeres direkte i en G-Counter (det ville bryte
-/// monotonisitet). Trikset er å bruke *to* G-Countere: én for inkrementer (`p`)
-/// og én for dekrementer (`n`). Den totale verdien er differansen `p − n`.
+/// Decrement cannot be represented directly in a G-Counter without breaking
+/// monotonicity. The trick is two G-Counters: one for increments (`p`) and one
+/// for decrements (`n`). The total value is `p − n`. Both sub-counters still
+/// grow monotonically, so all CRDT properties are preserved.
 ///
-/// Begge underliggende countere vokser fortsatt monotont, så CRDT-egenskapene
-/// bevares.
-///
-/// # Eksempel
+/// # Example
 ///
 /// ```
 /// use crdt_lib::counter::PNCounter;
@@ -122,32 +87,32 @@ impl Crdt for GCounter {
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PNCounter {
-    /// G-Counter som teller alle inkrementer per replika.
+    /// G-Counter tracking all increments per replica.
     positive: GCounter,
-    /// G-Counter som teller alle dekrementer per replika.
+    /// G-Counter tracking all decrements per replica.
     negative: GCounter,
 }
 
 impl PNCounter {
-    /// Lager en tom PN-Counter med verdi 0.
+    /// Creates an empty PN-Counter with value 0.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Inkrementerer denne replikaens telling med `amount`.
+    /// Increments this replica's count by `amount`.
     pub fn increment(&mut self, replica: ReplicaId, amount: u64) {
         self.positive.increment(replica, amount);
     }
 
-    /// Dekrementerer denne replikaens telling med `amount`.
+    /// Decrements this replica's count by `amount`.
     pub fn decrement(&mut self, replica: ReplicaId, amount: u64) {
         self.negative.increment(replica, amount);
     }
 
-    /// Returnerer den totale verdien som `positive − negative`.
+    /// Returns the total value as `positive − negative`.
     ///
-    /// Returnerer en `i64` fordi resultatet kan være negativt.
+    /// Returns `i64` because the result may be negative.
     #[must_use]
     #[allow(clippy::cast_possible_wrap)]
     pub fn value(&self) -> i64 {

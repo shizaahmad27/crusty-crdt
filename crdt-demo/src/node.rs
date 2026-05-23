@@ -1,16 +1,8 @@
-//! Selve noden: delt CRDT-tilstand, gossip-løkke, og innkommende peer-tilkoblinger.
+//! Node state, gossip loop, and incoming peer connections.
 //!
-//! Designet er bevisst enkelt:
-//!
-//! - Tilstanden ligger bak en `Arc<Mutex<...>>` slik at flere oppgaver kan lese
-//!   og skrive den.
-//! - To bakgrunnsoppgaver kjører per node: én lytter etter innkommende
-//!   tilkoblinger, én sender periodisk gossip til alle peers.
-//! - Brukerens REPL kjører i hovedoppgaven og oppdaterer tilstanden lokalt.
-//!
-//! Merk at vi ikke holder vedvarende koblinger til peers — vi åpner en ny TCP-
-//! kobling for hver gossip-runde. Dette er sløsete, men gjør koden mye enklere
-//! og passer perfekt for en demo der noder ofte kobles av og på.
+//! State is shared via `Arc<Mutex<...>>`. Two background tasks run per node:
+//! one listens for incoming connections, one sends periodic gossip to all peers.
+//! A new TCP connection is opened for each gossip round to keep the code simple.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -27,20 +19,20 @@ use tracing::{debug, info, warn};
 
 use crate::protocol::{read_message, write_message, Message};
 
-/// Delt tilstand for en node. Innpakket i `Arc<Mutex<...>>` av kallerne så
-/// flere tokio-oppgaver kan ha tilgang.
+/// Shared state for a node. Wrapped in `Arc<Mutex<...>>` by callers so
+/// multiple tokio tasks can access it.
 pub struct NodeState {
-    /// Replika-IDen til denne noden, brukt som Lamport-klokke-eier.
+    /// The replica ID of this node, used as the Lamport clock owner.
     #[allow(dead_code)]
     pub replica: ReplicaId,
-    /// Lokal Lamport-klokke, brukt for å generere unike tagger til add-er.
+    /// Local Lamport clock, used to generate unique tags for add operations.
     pub clock: LamportClock,
-    /// Den delte handlelisten.
+    /// The shared shopping list.
     pub list: OrSet<String>,
 }
 
 impl NodeState {
-    /// Lager en ny node-tilstand.
+    /// Creates a new node state.
     pub fn new(replica: ReplicaId) -> Self {
         Self {
             replica,
@@ -49,31 +41,27 @@ impl NodeState {
         }
     }
 
-    /// Legger til et element i listen og oppdaterer Lamport-klokken.
+    /// Adds an item to the list and advances the Lamport clock.
     pub fn add(&mut self, item: String) {
         let tag = self.clock.tick();
         self.list.add(item, tag);
     }
 
-    /// Fjerner et element fra listen.
+    /// Removes an item from the list.
     pub fn remove(&mut self, item: &str) {
         self.list.remove(&item.to_string());
     }
 
-    /// Slår sammen en annen tilstand inn i denne. Lamport-klokken må også
-    /// avanseres slik at fremtidige lokale tagger ikke kolliderer med tagger
-    /// vi har observert.
+    /// Merges another state into this one and advances the clock past all
+    /// observed tags so future local adds get strictly higher timestamps.
     pub fn merge(&mut self, other: &OrSet<String>) {
         self.list.merge(other);
-        // Avanser klokken forbi alle observerte tagger så fremtidige lokale
-        // add-er får strengt høyere tidsstempler.
-        // Vi gjør dette enkelt ved å observere klokkens nåværende verdi.
         let _ = self.clock.observe(self.clock.current());
     }
 }
 
-/// Starter en node: åpner lytte-port, starter gossip-løkke til peers, og
-/// returnerer den delte tilstanden så hovedtråden kan kjøre REPL mot den.
+/// Starts a node: binds the listen port, launches the gossip loop, and returns
+/// the shared state so the main task can run the REPL against it.
 pub async fn spawn_node(
     replica: ReplicaId,
     listen_addr: SocketAddr,
@@ -82,31 +70,31 @@ pub async fn spawn_node(
 ) -> Result<Arc<Mutex<NodeState>>> {
     let state = Arc::new(Mutex::new(NodeState::new(replica)));
 
-    // Oppgave 1: lytt etter innkommende tilkoblinger og merge inn deres tilstand.
+    // Task 1: accept incoming connections and merge their state.
     let listener = TcpListener::bind(listen_addr).await?;
-    info!(%listen_addr, "lytter etter innkommende peers");
+    info!(%listen_addr, "listening for incoming peers");
     {
         let state = Arc::clone(&state);
         tokio::spawn(async move {
             loop {
                 match listener.accept().await {
                     Ok((stream, peer_addr)) => {
-                        debug!(%peer_addr, "innkommende tilkobling");
+                        debug!(%peer_addr, "incoming connection");
                         let state = Arc::clone(&state);
                         tokio::spawn(handle_incoming(stream, state));
                     }
-                    Err(e) => warn!(error = %e, "accept feilet"),
+                    Err(e) => warn!(error = %e, "accept failed"),
                 }
             }
         });
     }
 
-    // Oppgave 2: send periodisk gossip til alle peers.
+    // Task 2: periodically send gossip to all peers.
     {
         let state = Arc::clone(&state);
         tokio::spawn(async move {
             let mut ticker = interval(gossip_interval);
-            ticker.tick().await; // første tick er umiddelbar; hopp over
+            ticker.tick().await; // first tick fires immediately; skip it
             loop {
                 ticker.tick().await;
                 let snapshot = {
@@ -115,7 +103,7 @@ pub async fn spawn_node(
                 };
                 for peer in &peers {
                     if let Err(e) = gossip_to_peer(*peer, &snapshot).await {
-                        debug!(%peer, error = %e, "gossip mislyktes");
+                        debug!(%peer, error = %e, "gossip failed");
                     }
                 }
             }
@@ -125,25 +113,25 @@ pub async fn spawn_node(
     Ok(state)
 }
 
-/// Håndterer en innkommende kobling: leser meldinger og merger dem inn.
+/// Handles an incoming connection: reads messages and merges them in.
 async fn handle_incoming(mut stream: TcpStream, state: Arc<Mutex<NodeState>>) {
     loop {
         match read_message(&mut stream).await {
             Ok(Some(Message::State(other))) => {
                 let mut s = state.lock().await;
                 s.merge(&other);
-                debug!(size = s.list.len(), "merget inn peer-tilstand");
+                debug!(size = s.list.len(), "merged peer state");
             }
             Ok(None) => break,
             Err(e) => {
-                debug!(error = %e, "lesing feilet");
+                debug!(error = %e, "read failed");
                 break;
             }
         }
     }
 }
 
-/// Sender én gossip-melding til en peer. Åpner en kobling, sender, og lukker.
+/// Sends one gossip message to a peer: opens a connection, writes, and closes.
 async fn gossip_to_peer(peer: SocketAddr, list: &OrSet<String>) -> Result<()> {
     let mut stream = TcpStream::connect(peer).await?;
     write_message(&mut stream, &Message::State(list.clone())).await?;

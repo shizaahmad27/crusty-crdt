@@ -1,26 +1,9 @@
 //! Peer-to-peer demo for `crdt-lib`.
 //!
-//! Hver node holder en delt `OrSet<String>` (en handleliste) og synkroniserer
-//! periodisk med sine peers via en enkel gossip-protokoll over TCP.
-//!
-//! ## Bruk
-//!
-//! Start tre noder i hver sin terminal:
-//!
-//! ```bash
-//! cargo run --bin crdt-demo -- --id 1 --port 7001 --peers 127.0.0.1:7002,127.0.0.1:7003
-//! cargo run --bin crdt-demo -- --id 2 --port 7002 --peers 127.0.0.1:7001,127.0.0.1:7003
-//! cargo run --bin crdt-demo -- --id 3 --port 7003 --peers 127.0.0.1:7001,127.0.0.1:7002
-//! ```
-//!
-//! Hver node viser en prompt der du kan skrive kommandoer:
-//!
-//! - `add <element>` — legg til et element
-//! - `remove <element>` — fjern et element
-//! - `list` — vis nåværende innhold
-//! - `quit` — avslutt
-//!
-//! Endringer propagerer automatisk til peers via gossip.
+//! Each node holds a shared `OrSet<String>` (a shopping list) and periodically
+//! synchronizes with its peers via a simple gossip protocol over TCP.
+//! See README.md file for usage instructions
+
 
 mod node;
 mod protocol;
@@ -35,23 +18,23 @@ use tracing_subscriber::EnvFilter;
 
 use crate::node::spawn_node;
 
-/// Kommandolinje-argumenter for én node.
+/// Command-line arguments for a single node.
 #[derive(Parser, Debug)]
 #[command(name = "crdt-demo", about = "Peer-to-peer CRDT demo")]
 struct Args {
-    /// Replika-ID for denne noden. Må være unik på tvers av alle noder.
+    /// Replica ID for this node. Must be unique across all nodes.
     #[arg(long)]
     id: u64,
 
-    /// Lytte-port for denne noden.
+    /// Listening port for this node.
     #[arg(long)]
     port: u16,
 
-    /// Komma-separert liste over peer-adresser, f.eks. `127.0.0.1:7002,127.0.0.1:7003`.
+    /// Comma-separated list of peer addresses, e.g. `127.0.0.1:7002,127.0.0.1:7003`.
     #[arg(long, value_delimiter = ',')]
     peers: Vec<SocketAddr>,
 
-    /// Hvor ofte vi sender gossip, i millisekunder.
+    /// How often to send gossip, in milliseconds.
     #[arg(long, default_value_t = 2000)]
     gossip_ms: u64,
 }
@@ -67,7 +50,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
     let listen_addr: SocketAddr = format!("0.0.0.0:{}", args.port)
         .parse()
-        .context("ugyldig lytte-adresse")?;
+        .context("invalid listen address")?;
 
     let state = spawn_node(
         args.id,
@@ -78,7 +61,7 @@ async fn main() -> Result<()> {
     .await?;
 
     println!(
-        "Node {} kjører. Kommandoer: add <x>, remove <x>, list, quit",
+        "Node {} running. Commands: add <x>, remove <x>, list, quit",
         args.id
     );
 
@@ -98,17 +81,17 @@ async fn main() -> Result<()> {
         match cmd {
             "add" if !arg.is_empty() => {
                 state.lock().await.add(arg.to_string());
-                println!("la til '{arg}'");
+                println!("added '{arg}'");
             }
             "remove" | "rm" if !arg.is_empty() => {
                 state.lock().await.remove(arg);
-                println!("fjernet '{arg}'");
+                println!("removed '{arg}'");
             }
             "list" | "ls" => {
                 let mut items: Vec<String> = state.lock().await.list.iter().cloned().collect();
                 items.sort();
                 if items.is_empty() {
-                    println!("(tom)");
+                    println!("(empty)");
                 } else {
                     for item in items {
                         println!("  - {item}");
@@ -116,7 +99,7 @@ async fn main() -> Result<()> {
                 }
             }
             "quit" | "exit" => break,
-            _ => println!("ukjent kommando. prøv: add <x>, remove <x>, list, quit"),
+            _ => println!("unknown command. try: add <x>, remove <x>, list, quit"),
         }
     }
 
