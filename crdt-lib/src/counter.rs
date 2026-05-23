@@ -1,5 +1,6 @@
 //! Counter-CRDT-er: G-Counter og PN-Counter.
 //!
+<<<<<<< HEAD
 //! Counters er det enkleste pedagogiske eksempelet på en CRDT, og illustrerer
 //! kjerneideen bak state-based CRDTs: hver replika holder et *per-replika*
 //! bidrag som vokser monotont, og merge er en *join*-operasjon i en lattice.
@@ -247,3 +248,8 @@ mod tests {
         assert_eq!(a.value(), 12);
     }
 }
+=======
+//! Implementeres i dag 2-3.
+
+#![allow(missing_docs)]
+>>>>>>> 8e6760f35255d085662623707ec51acbf0e1d572
