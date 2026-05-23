@@ -1,21 +1,12 @@
 # crusty-crdt
 
-<<<<<<< HEAD
-[![CI](https://github.com/<brukernavn>/crusty-crdt/actions/workflows/ci.yml/badge.svg)](https://github.com/<brukernavn>/crusty-crdt/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://<brukernavn>.github.io/crusty-crdt/)
-
-> Et Rust-bibliotek for Conflict-free Replicated Data Types (CRDTs), implementert fra grunnen av som en bacheloroppgave i datakommunikasjon.
-
-**Siste CI-kjøring:** [![CI](https://github.com/<brukernavn>/crusty-crdt/actions/workflows/ci.yml/badge.svg)](https://github.com/<brukernavn>/crusty-crdt/actions/workflows/ci.yml)
-=======
-[![CI](https://github.com/shizaaahmad27/crusty-crdt/actions/workflows/ci.yml/badge.svg)](https://github.com/shizaahmad27/crusty-crdt/actions/workflows/ci.yml)
+[![CI](https://github.com/shizaahmad27/crusty-crdt/actions/workflows/ci.yml/badge.svg)](https://github.com/shizaahmad27/crusty-crdt/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-github--pages-blue)](https://shizaahmad27.github.io/crusty-crdt/)
 
 > Et Rust-bibliotek for Conflict-free Replicated Data Types (CRDTs), implementert fra grunnen av som en bacheloroppgave i datakommunikasjon.
 
 **Siste CI-kjøring:** [![CI](https://github.com/shizaahmad27/crusty-crdt/actions/workflows/ci.yml/badge.svg)](https://github.com/shizaahmad27/crusty-crdt/actions/workflows/ci.yml)
->>>>>>> 8e6760f35255d085662623707ec51acbf0e1d572
-**API-dokumentasjon:** https://&lt;brukernavn&gt;.github.io/crusty-crdt/
+**API-dokumentasjon:** https://shizaahmad27.github.io/crusty-crdt/
 
 ## Introduksjon
 
@@ -77,11 +68,7 @@ skrevet fra grunnen av i dette prosjektet.
 Forutsetninger: Rust 1.75 eller nyere ([installasjonsinstruksjoner](https://rustup.rs)).
 
 ```bash
-<<<<<<< HEAD
-git clone https://github.com/<brukernavn>/crusty-crdt.git
-=======
 git clone https://github.com/shizaahmad27/crusty-crdt.git
->>>>>>> 8e6760f35255d085662623707ec51acbf0e1d572
 cd crusty-crdt
 cargo build --release
 ```
@@ -130,7 +117,7 @@ Generer og åpne lokalt:
 cargo doc --workspace --no-deps --open
 ```
 
-Eller se den publiserte versjonen: https://&lt;brukernavn&gt;.github.io/crusty-crdt/
+Eller se den publiserte versjonen: https://shizaahmad27.github.io/crusty-crdt/
 
 ## Eksterne kilder
 
