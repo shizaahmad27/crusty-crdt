@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Crdt, ReplicaId};
 
-/// A grow-only counter — a distributed counter that only supports increment.
+/// A grow-only counter - a distributed counter that only supports increment.
 ///
 /// # Concept
 ///
