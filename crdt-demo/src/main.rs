@@ -4,7 +4,6 @@
 //! synchronizes with its peers via a simple gossip protocol over TCP.
 //! See README.md file for usage instructions
 
-
 mod node;
 mod protocol;
 
